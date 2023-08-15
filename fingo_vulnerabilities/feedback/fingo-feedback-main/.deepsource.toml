@@ -1,0 +1,44 @@
+version = 1
+
+test_patterns = ["__test__/**/*.ts"]
+
+exclude_patterns = [
+    "migrations/**/*",
+    "coverage/**/*",
+    "node_modules/**/*",
+    "src/infra/remote/*.ts",
+    "src/infra/services/*"
+]
+
+[[analyzers]]
+name = "shell"
+enabled = true
+
+[[analyzers]]
+name = "javascript"
+enabled = true
+
+    [analyzers.meta]
+    import_root = "github.com/fingoafrica/fingo-shopping"
+    dialect = "typescript"
+    environment = [
+        "nodejs",
+        "jest",
+    ]
+
+
+[[analyzers]]
+name = "sql"
+enabled = true
+
+[[analyzers]]
+name = "test-coverage"
+enabled = true
+
+[[analyzers]]
+name = "docker"
+enabled = true
+
+[[transformers]]
+name = "prettier"
+enabled = true

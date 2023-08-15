@@ -1,0 +1,29 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:13
+    ports:
+      - "54321:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=feedback
+      - POSTGRES_PASSWORD=local
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  feedback:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    hostname: feedback-srv
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DOPPLER_TOKEN: dp.st.stage_ken_dev.MJSeq3QWwqQXXJpCuA7dalxKszp73owYxvCYNDDAsXq
+      MS_NAME: feedback
+      PORT: 3000
+      TYPEORM_DATABASE: feedback

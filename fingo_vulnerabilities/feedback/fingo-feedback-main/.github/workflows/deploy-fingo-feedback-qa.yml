@@ -1,0 +1,101 @@
+name: qa-fingo-feedback-deploy
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: eu-west-2
+  EKS_CLUSTER_NAME: api-v1-qa-eks
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      #Notify on slack that build has started.
+      - uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          fields: repo,message,commit,author,action,eventName,ref,workflow,job,took # selectable (default: repo,message)
+          custom_payload: |
+            {
+              attachments: [{
+                color: '#FF8C00',
+                text: `${process.env.AS_WORKFLOW}\n${process.env.AS_JOB} (${process.env.AS_COMMIT}) of ${process.env.AS_REPO}@${process.env.AS_REF} by ${process.env.AS_AUTHOR} ${{ job.status }} in ${process.env.AS_TOOK} / build started ⚙️`,
+              }]
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # optional
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }} # required
+        if: always() # Pick up events even if the job fails or is canceled..
+
+        # get code
+      - uses: actions/checkout@v2
+
+        #config aws
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+        #login to ecr
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+        #do the ting ey
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: feedback
+          IMAGE_TAG: qa
+        run: |
+          # Build a docker container and
+          # push it to ECR so that it can
+          # be deployed to EKS.
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+      #setup kubeconfig
+      - name: Setup kubeconfig
+        id: setup-kubeconfig
+        run: |
+          aws eks --region $AWS_REGION update-kubeconfig --name $EKS_CLUSTER_NAME
+      - uses: azure/setup-kubectl@v2.0
+        with:
+          version: 'v1.23.6' # default is latest stable
+        id: install
+      #push
+      - name: Deploy k8s yaml
+        id: deploy-k8s-yaml
+        env:
+          K8S_YAML_DIR: ./
+          IMAGE_NAME: ${{ steps.build-image.outputs.image }}
+        run: |
+          # Verify deployment
+          kubectl rollout restart deployment feedback-depl
+          # List Public IP of cluster
+          kubectl get services -o wide
+          kubectl get ingress
+
+      #notify on slack success or failure
+      - uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          fields: repo,message,commit,author,action,eventName,ref,workflow,job,took # selectable (default: repo,message)
+          custom_payload: |
+            {
+            attachments: [{
+              color: '${{ job.status }}' === 'success' ? 'good' : '${{ job.status }}' === 'failure' ? 'danger' : 'warning',
+              text: `${process.env.AS_WORKFLOW}\n${process.env.AS_JOB} (${process.env.AS_COMMIT}) of ${process.env.AS_REPO}@${process.env.AS_REF} by ${process.env.AS_AUTHOR} ${{ job.status }} in ${process.env.AS_TOOK}`,
+            }]
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # optional
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }} # required
+        if: always() # Pick up events even if the job fails or is canceled.

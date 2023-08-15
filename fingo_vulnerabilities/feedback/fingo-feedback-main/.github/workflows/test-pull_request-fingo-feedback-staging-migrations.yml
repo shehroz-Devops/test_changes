@@ -1,0 +1,99 @@
+name: staging-fingo-feedback-pull_request-test-migrations
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build and Test Nodejs Application
+    runs-on: ubuntu-latest
+
+    # Service containers to run with `runner-job`
+    services:
+      # Label used to access the service container
+      postgres:
+        # Docker Hub image
+        image: postgres:13
+        # Provide the password for postgres
+        env:
+          POSTGRES_USER: ${{ secrets.TYPEORM_USERNAME }}
+          POSTGRES_PASSWORD: ${{ secrets.TYPEORM_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.TYPEORM_DATABASE }}
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Maps tcp port 5432 on service container to the host
+          - 5432:5432
+
+    steps:
+      #Notify on slack that build has started.
+      - uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          fields: repo,message,commit,author,action,eventName,ref,workflow,job,took # selectable (default: repo,message)
+          custom_payload: |
+            {
+              attachments: [{
+                color: '#FF8C00',
+                text: `${process.env.AS_WORKFLOW}\n${process.env.AS_JOB} (${process.env.AS_COMMIT}) of ${process.env.AS_REPO}@${process.env.AS_REF} by ${process.env.AS_AUTHOR} ${{ job.status }} in ${process.env.AS_TOOK} / build started ⚙️`,
+              }]
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # optional
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }} # required
+        if: always() # Pick up events even if the job fails or is canceled..
+
+      # test
+      - name: Checkout Source code
+        uses: actions/checkout@v2
+
+      - name: Install ts
+        run: npm install -g ts-node
+
+      - name: Install TypeORM
+        run: npm i --save typeorm
+
+      - name: Run Migration
+        env:
+          TYPEORM_USERNAME: ${{ secrets.TYPEORM_USERNAME }}
+          #TYPEORM_USERNAME: tester
+          TYPEORM_PASSWORD: ${{ secrets.TYPEORM_PASSWORD }}
+          #testingjkl
+          TYPEORM_DATABASE: ${{ secrets.TYPEORM_DATABASE }}
+          #test
+          TYPEORM_CONNECTION: ${{ secrets.TYPEORM_CONNECTION }}
+          #postgres
+          TYPEORM_HOST: ${{ secrets.TYPEORM_HOST }}
+          #localhost
+          TYPEORM_PORT: ${{ secrets.TYPEORM_PORT }}
+          #5432
+          TYPEORM_LOGGING: ${{ secrets.TYPEORM_LOGGING }}
+          #true
+          TYPEORM_MIGRATIONS_DIR: ${{ secrets.TYPEORM_MIGRATIONS_DIR_STAGING }}
+          #migrations
+          TYPEORM_MIGRATIONS: ${{ secrets.TYPEORM_MIGRATIONS_STAGING }}
+          #migrations/*.ts
+        run: ts-node ./node_modules/.bin/typeorm migration:run
+
+      #notify on slack success or failure
+      - uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          fields: repo,message,commit,author,action,eventName,ref,workflow,job,took # selectable (default: repo,message)
+          custom_payload: |
+            {
+            attachments: [{
+              color: '${{ job.status }}' === 'success' ? 'good' : '${{ job.status }}' === 'failure' ? 'danger' : 'warning',
+              text: `${process.env.AS_WORKFLOW}\n${process.env.AS_JOB} (${process.env.AS_COMMIT}) of ${process.env.AS_REPO}@${process.env.AS_REF} by ${process.env.AS_AUTHOR} ${{ job.status }} in ${process.env.AS_TOOK}`,
+            }]
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # optional
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }} # required
+        if: always() # Pick up events even if the job fails or is canceled.
